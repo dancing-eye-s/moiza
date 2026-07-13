@@ -151,8 +151,16 @@ async function handleGetEvent(request, response, eventId) {
   sendJson(response, 200, {
     event: result.event,
     grid,
-    participants: result.participants.map((p) => ({ participantId: p.participantId, name: p.name, slots: p.slots })),
+    participants: result.participants.map((p) => ({
+      participantId: p.participantId,
+      name: p.name,
+      address: p.address,
+      preferredArea: p.preferredArea,
+      slots: p.slots,
+    })),
     bestTimes: best,
+    placeRecommendation: result.placeRecommendation,
+    placeSuggestions: result.placeSuggestions,
     invitationImage: invitation,
   });
 }
@@ -165,12 +173,37 @@ async function handleJoin(request, response, eventId) {
   const event = await store.getEvent(eventId);
   if (!event) return sendError(response, 404, "일정을 찾을 수 없어요.");
 
-  const result = await store.joinEvent(eventId, { name, password: body.password || "" });
+  const result = await store.joinEvent(eventId, {
+    name,
+    password: body.password || "",
+    address: body.address || "",
+    preferredArea: body.preferredArea || "",
+  });
   if (result.error === "PASSWORD_MISMATCH") {
     return sendError(response, 409, "이미 사용 중인 이름이에요. 본인이라면 비밀번호를 입력해주세요.");
   }
 
   sendJson(response, 200, { participantId: result.participantId });
+}
+
+async function handleAddPlace(request, response, eventId) {
+  const body = await readBody(request);
+  const event = await store.getEvent(eventId);
+  if (!event) return sendError(response, 404, "일정을 찾을 수 없어요.");
+
+  const result = await store.addPlaceSuggestion(eventId, {
+    participantId: body.participantId || "",
+    participantName: body.participantName || "",
+    name: body.name || "",
+    area: body.area || "",
+    note: body.note || "",
+  });
+
+  if (result.error === "PLACE_REQUIRED") {
+    return sendError(response, 400, "장소명이나 지역을 입력해주세요.");
+  }
+
+  sendJson(response, 200, { placeId: result.placeId });
 }
 
 async function handleSaveAvailability(request, response, eventId) {
@@ -242,6 +275,9 @@ async function routeApi(request, response, url) {
   if (request.method === "PUT" && parts[1] === "events" && parts[3] === "availability") {
     return handleSaveAvailability(request, response, parts[2]);
   }
+  if (request.method === "POST" && parts[1] === "events" && parts[3] === "places") {
+    return handleAddPlace(request, response, parts[2]);
+  }
   if (request.method === "GET" && parts[1] === "cron" && parts[2] === "deadline") {
     return handleCronDeadline(request, response);
   }
@@ -274,7 +310,7 @@ async function appHandler(request, response) {
 if (require.main === module) {
   const server = http.createServer(appHandler);
   server.listen(PORT, () => {
-    console.log(`moiza: http://localhost:${PORT}`);
+    console.log(`moiza-go: http://localhost:${PORT}`);
   });
 }
 

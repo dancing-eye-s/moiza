@@ -169,12 +169,6 @@ p.sub {
   object-fit: contain;
 }
 
-.home-wordmark {
-  width: 78px;
-  height: auto;
-  display: block;
-}
-
 .home-hero {
   flex: 1;
   display: flex;
@@ -1098,7 +1092,40 @@ p.sub {
 .sheet-title {
   font-weight: 800;
   font-size: 17px;
-  margin-bottom: 16px;
+  margin-bottom: 8px;
+}
+
+.sheet-desc {
+  color: var(--navy-soft);
+  font-size: 13px;
+  line-height: 1.45;
+  margin: 0 0 12px;
+}
+
+.share-textarea {
+  width: 100%;
+  min-height: 156px;
+  border: 1.5px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--navy);
+  font: inherit;
+  font-size: 14px;
+  line-height: 1.55;
+  padding: 12px;
+  resize: vertical;
+  outline: none;
+  margin-bottom: 10px;
+}
+
+.share-textarea.short {
+  min-height: 92px;
+  background: var(--bg);
+}
+
+.share-textarea:focus {
+  border-color: var(--coral);
+  background: var(--bg);
 }
 
 .share-option {
@@ -1129,6 +1156,109 @@ p.sub {
 .share-option .text {
   font-weight: 700;
   font-size: 15px;
+}
+
+.place-card {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: 15px;
+  margin-top: 18px;
+  background: var(--bg);
+}
+
+.place-card.compact {
+  margin-top: 22px;
+}
+
+.place-card-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 8px;
+}
+
+.place-eyebrow {
+  color: var(--coral-dark);
+  font-size: 12px;
+  font-weight: 800;
+  margin-bottom: 3px;
+}
+
+.place-card h2 {
+  font-size: 20px;
+  line-height: 1.25;
+  margin: 0;
+}
+
+.place-card p {
+  color: var(--navy-soft);
+  font-size: 13px;
+  line-height: 1.5;
+  margin: 0 0 12px;
+}
+
+.mini-btn {
+  border: none;
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--navy);
+  font-weight: 800;
+  font-size: 12px;
+  padding: 8px 11px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+.place-chip-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+  margin-bottom: 10px;
+}
+
+.place-chip-row span {
+  border-radius: 999px;
+  background: #fff7ed;
+  color: var(--coral-dark);
+  font-size: 12px;
+  font-weight: 800;
+  padding: 6px 9px;
+}
+
+.place-meta {
+  color: var(--navy-soft);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.place-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.place-item {
+  border-top: 1px solid var(--border);
+  padding-top: 10px;
+}
+
+.place-item strong {
+  display: block;
+  font-size: 14px;
+  margin-bottom: 3px;
+}
+
+.place-item span {
+  display: block;
+  color: var(--navy-soft);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.place-item p {
+  margin: 5px 0 0;
 }
 
 .attendee-list {

@@ -32,9 +32,10 @@ const SHEETS = {
     "status",
     "expected_count",
   ],
-  participants: ["event_id", "participant_id", "name", "password_hash", "created_at", "updated_at"],
+  participants: ["event_id", "participant_id", "name", "password_hash", "created_at", "updated_at", "address", "preferred_area"],
   availability: ["event_id", "participant_id", "slots_bitmap", "updated_at", "created_at"],
   invitations: ["event_id", "image_dataurl", "created_at"],
+  places: ["event_id", "place_id", "participant_id", "participant_name", "name", "area", "note", "created_at"],
 };
 
 function loadCredentials() {

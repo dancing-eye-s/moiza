@@ -4,8 +4,7 @@
   const APP = document.getElementById("app");
   const SHEET_ROOT = document.getElementById("sheet-root");
   const TOAST_ROOT = document.getElementById("toast-root");
-  const BRAND_ICON = "assets/moiza/moiza_icon_venn.png";
-  const BRAND_WORDMARK = "assets/moiza/moiza_wordmark.png";
+  const BRAND_ICON = "/assets/moiza-go/moiza_go_icon_venn.png";
 
   // ---------------------------------------------------------------------
   // Utilities
@@ -20,7 +19,7 @@
       String(name || "")
         .trim()
         .replace(/\s+/g, "_")
-        .replace(/[\/\\:*?"<>|]/g, "") || "moiza"
+        .replace(/[\/\\:*?"<>|]/g, "") || "moiza-go"
     );
   }
 
@@ -159,15 +158,22 @@
   // Share sheet (feature 1)
   // ---------------------------------------------------------------------
 
-  function openShareSheet({ title, text, url, imageUrl, filePromise, fileName }) {
+  function shareMessageWithUrl(text, url) {
+    const cleanText = String(text || "").trim();
+    return cleanText.includes(url) ? cleanText : `${cleanText}\n${url}`.trim();
+  }
+
+  function openShareSheet({ title, text, url, imageUrl, filePromise, fileName, primaryButtonTitle = "시간 선택하러 가기" }) {
     const kakaoAvailable = Boolean(window.Kakao && window.Kakao.isInitialized && window.Kakao.isInitialized());
 
     openSheet(
       `
-      <div class="sheet-title">공유하기</div>
+      <div class="sheet-title">카톡 메시지 만들기</div>
+      <p class="sheet-desc">공유할 문구를 수정한 뒤 복사하거나 카카오톡으로 보낼 수 있어요.</p>
+      <textarea class="share-textarea" id="share-text">${escapeHtml(text)}</textarea>
       <div class="share-option" id="share-copy">
         <div class="icon">🔗</div>
-        <div class="text">링크 복사</div>
+        <div class="text">문구 복사</div>
       </div>
       ${
         kakaoAvailable
@@ -180,10 +186,13 @@
       </div>
     `,
       () => {
+        const textInput = document.getElementById("share-text");
+        const currentText = () => textInput.value.trim() || text;
+
         document.getElementById("share-copy").addEventListener("click", async () => {
           try {
-            await navigator.clipboard.writeText(`${text}\n${url}`);
-            showToast("링크가 복사됐어요");
+            await navigator.clipboard.writeText(shareMessageWithUrl(currentText(), url));
+            showToast("공유 문구가 복사됐어요");
           } catch {
             showToast("복사에 실패했어요");
           }
@@ -197,11 +206,11 @@
               objectType: "feed",
               content: {
                 title,
-                description: text,
-                imageUrl: imageUrl || `${location.origin}/${BRAND_ICON}`,
+                description: currentText(),
+                imageUrl: imageUrl || `${location.origin}${BRAND_ICON}`,
                 link: { webUrl: url, mobileWebUrl: url },
               },
-              buttons: [{ title: "시간 선택하러 가기", link: { webUrl: url, mobileWebUrl: url } }],
+              buttons: [{ title: primaryButtonTitle, link: { webUrl: url, mobileWebUrl: url } }],
             });
             closeSheet();
           });
@@ -209,7 +218,7 @@
 
         document.getElementById("share-native").addEventListener("click", async () => {
           closeSheet();
-          const shareData = { title, text: `${text}\n${url}`, url };
+          const shareData = { title, text: shareMessageWithUrl(currentText(), url), url };
 
           try {
             if (filePromise && navigator.canShare) {
@@ -223,7 +232,7 @@
               await navigator.share(shareData);
               return;
             }
-            await navigator.clipboard.writeText(`${text}\n${url}`);
+            await navigator.clipboard.writeText(shareMessageWithUrl(currentText(), url));
             showToast("이 브라우저는 공유를 지원하지 않아 링크를 복사했어요");
           } catch (err) {
             if (err?.name !== "AbortError") showToast("공유에 실패했어요");
@@ -242,7 +251,6 @@
       <div class="screen home-screen">
         <div class="home-brand">
           <img class="home-logo" src="${BRAND_ICON}" alt="" />
-          <img class="home-wordmark" src="${BRAND_WORDMARK}" alt="MOIZA" />
         </div>
 
         <section class="home-hero">
@@ -275,7 +283,7 @@
           </div>
         </section>
 
-        <div class="home-flow" aria-label="모이자 사용 흐름">
+        <div class="home-flow" aria-label="모이자고 사용 흐름">
           <div>
             <span>1</span>
             <strong>후보 만들기</strong>
@@ -817,7 +825,7 @@
   };
 
   function participantStorageKey(eventId) {
-    return `moiza:participant:${eventId}`;
+    return `moiza-go:participant:${eventId}`;
   }
 
   async function renderEventPage(eventId) {
@@ -914,10 +922,10 @@
     const url = `${location.origin}/e/${eventPageState.eventId}`;
     const text = eventShareText(event);
     openShareSheet({
-      title: `모이자 · ${event.name}`,
+      title: `모이자고 · ${event.name}`,
       text,
       url,
-      imageUrl: `${location.origin}/${BRAND_ICON}`,
+      imageUrl: `${location.origin}${BRAND_ICON}`,
       fileName: `${sanitizeFilename(event.name)}.png`,
       filePromise: () => renderEventShareImage(event),
     });
@@ -937,7 +945,7 @@
 
     ctx.fillStyle = "#F2664A";
     ctx.font = "bold 34px sans-serif";
-    ctx.fillText("MOIZA", 72, 104);
+    ctx.fillText("MOIZA-GO", 72, 104);
 
     ctx.fillStyle = "#1E2A3B";
     ctx.font = "bold 62px sans-serif";
@@ -979,8 +987,12 @@
       ${topbar(null)}
       <div class="screen">
         <h1 class="headline">누구신가요?</h1>
-        <p class="sub">이름을 입력하고 시간을 선택해주세요</p>
+        <p class="sub">이름을 입력하고 시간을 선택해주세요. 거주지와 희망 지역은 중간 장소 추천에만 사용돼요.</p>
         <input class="field" id="join-name" placeholder="이름" maxlength="20" style="margin-bottom:20px;" />
+        <label class="label">거주지 (선택)</label>
+        <input class="field-sm" id="join-address" placeholder="예: 홍대입구, 강남역, 잠실" style="width:100%; margin-bottom:14px;" />
+        <label class="label">희망 지역 (선택)</label>
+        <input class="field-sm" id="join-preferred-area" placeholder="예: 신촌이나 종로 선호" style="width:100%; margin-bottom:14px;" />
         <label class="label">비밀번호 (선택)</label>
         <input class="field-sm" id="join-password" type="password" placeholder="다시 수정하려면 설정하세요" />
       </div>
@@ -996,12 +1008,15 @@
     btn.addEventListener("click", async () => {
       const name = nameInput.value.trim();
       const password = document.getElementById("join-password").value;
+      const address = document.getElementById("join-address").value.trim();
+      const preferredArea = document.getElementById("join-preferred-area").value.trim();
       if (!name) return;
       btn.disabled = true;
 
       try {
-        const { participantId } = await api("POST", `/events/${eventPageState.eventId}/join`, { name, password });
+        const { participantId } = await api("POST", `/events/${eventPageState.eventId}/join`, { name, password, address, preferredArea });
         localStorage.setItem(participantStorageKey(eventPageState.eventId), JSON.stringify({ participantId, name }));
+        eventPageState.data = await api("GET", `/events/${eventPageState.eventId}`);
         eventPageState.myParticipantId = participantId;
         eventPageState.myName = name;
         const total = eventPageState.data.grid.total;
@@ -1022,7 +1037,7 @@
         <div class="empty-state">
           <div class="venn-spinner"><span></span><span></span><span></span></div>
           <p style="font-weight:700; color:var(--navy); margin-bottom:6px;">기간이 지나 삭제된 일정이에요</p>
-          <p class="sub">모이자는 생성 30일 후 자동으로 데이터를 삭제해요</p>
+          <p class="sub">모이자고는 생성 30일 후 자동으로 데이터를 삭제해요</p>
         </div>
       </div>
       <div class="cta-bar"><button class="cta" id="new-btn">새 일정 만들기</button></div>
@@ -1069,6 +1084,98 @@
     return 1;
   }
 
+  function renderPlaceCard({ compact = false } = {}) {
+    const recommendation = eventPageState.data.placeRecommendation;
+    const suggestions = eventPageState.data.placeSuggestions || [];
+    const peopleWithArea = (eventPageState.data.participants || []).filter((p) => p.address || p.preferredArea).length;
+
+    return `
+      <section class="place-card ${compact ? "compact" : ""}">
+        <div class="place-card-head">
+          <div>
+            <div class="place-eyebrow">장소 추천</div>
+            <h2>${escapeHtml(recommendation?.area || "장소 정보 입력 대기")}</h2>
+          </div>
+          <button class="mini-btn" id="${compact ? "result-place-add" : "place-add"}">추천하기</button>
+        </div>
+        <p>${escapeHtml(recommendation?.reason || "참여자의 거주지와 희망 지역을 바탕으로 중간 지점을 추천해요.")}</p>
+        ${
+          recommendation?.suggestions?.length
+            ? `<div class="place-chip-row">${recommendation.suggestions.map((item) => `<span>${escapeHtml(item)}</span>`).join("")}</div>`
+            : ""
+        }
+        <div class="place-meta">${peopleWithArea}명이 지역 정보를 입력했어요 · ${suggestions.length}개 장소 추천</div>
+        ${
+          suggestions.length
+            ? `<div class="place-list">
+                ${suggestions
+                  .slice(0, compact ? 3 : 6)
+                  .map(
+                    (place) => `
+                    <div class="place-item">
+                      <strong>${escapeHtml(place.name || place.area)}</strong>
+                      <span>${escapeHtml([place.area, place.participantName ? `${place.participantName} 추천` : ""].filter(Boolean).join(" · "))}</span>
+                      ${place.note ? `<p>${escapeHtml(place.note)}</p>` : ""}
+                    </div>
+                  `,
+                  )
+                  .join("")}
+              </div>`
+            : ""
+        }
+      </section>
+    `;
+  }
+
+  function bindPlaceButtons() {
+    ["place-add", "result-place-add"].forEach((id) => {
+      const button = document.getElementById(id);
+      if (button) button.addEventListener("click", openPlaceSheet);
+    });
+  }
+
+  function openPlaceSheet() {
+    openSheet(
+      `
+      <div class="sheet-title">장소 추천하기</div>
+      <p class="sheet-desc">모임에 어울리는 지역이나 장소를 남겨주세요.</p>
+      <label class="label">장소명</label>
+      <input class="field-sm" id="place-name" placeholder="예: 성수역 근처 식당" style="width:100%; margin-bottom:12px;" />
+      <label class="label">지역</label>
+      <input class="field-sm" id="place-area" placeholder="예: 성수, 종로, 강남" style="width:100%; margin-bottom:12px;" />
+      <label class="label">메모</label>
+      <textarea class="share-textarea short" id="place-note" placeholder="교통, 분위기, 추천 이유를 적어주세요."></textarea>
+      <button class="cta" id="place-save">추천 남기기</button>
+    `,
+      () => {
+        document.getElementById("place-save").addEventListener("click", async () => {
+          const name = document.getElementById("place-name").value.trim();
+          const area = document.getElementById("place-area").value.trim();
+          const note = document.getElementById("place-note").value.trim();
+          if (!name && !area) return showToast("장소명이나 지역을 입력해주세요");
+
+          try {
+            await api("POST", `/events/${eventPageState.eventId}/places`, {
+              participantId: eventPageState.myParticipantId,
+              participantName: eventPageState.myName,
+              name,
+              area,
+              note,
+            });
+            const data = await api("GET", `/events/${eventPageState.eventId}`);
+            eventPageState.data = data;
+            closeSheet();
+            showToast("장소 추천이 저장됐어요");
+            if (location.pathname.endsWith("/result")) renderResult(eventPageState.eventId);
+            else renderGridScreen();
+          } catch (err) {
+            showToast(err.message);
+          }
+        });
+      },
+    );
+  }
+
   function renderGridScreen() {
     stopPolling();
     const { event, grid } = eventPageState.data;
@@ -1095,6 +1202,7 @@
             : `<div class="grid-summary">${grid.columns.length}일 전체 집계 · ${event.timeStart}–${event.timeEnd}</div>`
         }
         <div id="grid-container"></div>
+        ${renderPlaceCard()}
       </div>
       <div class="cta-bar">
         <button class="cta ghost" id="share-btn">공유하기</button>
@@ -1127,6 +1235,7 @@
     });
 
     document.getElementById("share-btn").addEventListener("click", () => shareEvent(event));
+    bindPlaceButtons();
 
     renderGridBody();
     if (eventPageState.activeTab === "group") startPolling();
@@ -1314,6 +1423,8 @@
     }
 
     const { event, participants, bestTimes } = data;
+    eventPageState.eventId = eventId;
+    eventPageState.data = data;
     const resultUrl = `${location.origin}/e/${eventId}/result`;
 
     APP.innerHTML = `
@@ -1342,6 +1453,7 @@
         <div class="attendee-list">
           ${participants.map((p) => `<div class="attendee-row"><span class="dot yes"></span>${escapeHtml(p.name)}</div>`).join("")}
         </div>
+        ${renderPlaceCard({ compact: true })}
       </div>
       <div class="cta-bar">
         <button class="cta" id="share-text-btn">결과 공유하기</button>
@@ -1352,13 +1464,16 @@
     document.getElementById("share-text-btn").addEventListener("click", () => {
       const top = bestTimes[0];
       const summary = top ? `${top.date} ${top.startLabel}–${top.endLabel} (${top.count}/${top.total}명)` : "아직 겹치는 시간이 없어요";
+      const place = data.placeRecommendation?.area && data.placeRecommendation.area !== "장소 정보 입력 대기" ? `\n추천 장소: ${data.placeRecommendation.area}` : "";
       openShareSheet({
-        title: `모이자 · ${event.name} 결과`,
-        text: `"${event.name}" 결과가 나왔어요! 가장 많이 겹치는 시간은 ${summary} 이에요 ✅`,
+        title: `모이자고 · ${event.name} 결과`,
+        text: `"${event.name}" 결과가 나왔어요.\n가장 많이 겹치는 시간: ${summary}${place}`,
         url: resultUrl,
         filePromise: () => renderResultImage(event, bestTimes),
+        primaryButtonTitle: "결과 확인하기",
       });
     });
+    bindPlaceButtons();
   }
 
   async function renderResultImage(event, bestTimes) {
@@ -1400,7 +1515,7 @@
 
     ctx.fillStyle = "#8B95A1";
     ctx.font = "24px sans-serif";
-    ctx.fillText("모이자 (MOIZA)", 60, SIZE - 60);
+    ctx.fillText("모이자고 (MOIZA-GO)", 60, SIZE - 60);
 
     const blob = await new Promise((resolve) => canvas.toBlob(resolve, "image/png"));
     return new File([blob], `${sanitizeFilename(event.name)}_결과.png`, { type: "image/png" });

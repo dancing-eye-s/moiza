@@ -50,7 +50,7 @@ function base64url(input) {
 }
 
 function resultUrl(eventId) {
-  const base = process.env.PUBLIC_BASE_URL || "https://moiza.app";
+  const base = process.env.PUBLIC_BASE_URL || "https://moiza-go.vercel.app";
   return `${base}/e/${eventId}/result`;
 }
 
@@ -79,12 +79,12 @@ async function sendResultEmail({ to, eventName, eventId, participantCount, bestT
   }
 
   const token = await getAccessToken();
-  const subject = `[모이자] '${eventName}' 일정 조율 결과가 나왔어요`;
+  const subject = `[모이자고] '${eventName}' 일정 조율 결과가 나왔어요`;
   const html = renderHtml({ eventName, eventId, participantCount, bestTimes });
   const sender = process.env.GMAIL_SENDER_EMAIL;
 
   const message = [
-    `From: 모이자 <${sender}>`,
+    `From: 모이자고 <${sender}>`,
     `To: ${to}`,
     `Subject: =?UTF-8?B?${Buffer.from(subject).toString("base64")}?=`,
     "MIME-Version: 1.0",
