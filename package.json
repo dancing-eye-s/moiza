@@ -1,0 +1,13 @@
+{
+  "name": "moiza",
+  "version": "0.1.0",
+  "private": true,
+  "description": "모이자(MOIZA) — 모바일 우선 그룹 일정 조율 서비스",
+  "scripts": {
+    "start": "node server.js",
+    "check": "node --check server.js && node --check script.js && node --check google.js && node --check 'api/[...path].js'"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
