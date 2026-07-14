@@ -91,6 +91,7 @@ function bestTimes(event, participants, limit = 3) {
     const endLabel = timeLabelFromMinutes(endTotalMin);
 
     return {
+      dateKey: column.key,
       date: column.label,
       startLabel,
       endLabel,

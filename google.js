@@ -31,11 +31,48 @@ const SHEETS = {
     "created_at",
     "status",
     "expected_count",
+    "owner_token_hash",
+    "confirmed_date",
+    "confirmed_start",
+    "confirmed_end",
+    "confirmed_place_name",
+    "confirmed_place_area",
+    "confirmed_at",
   ],
-  participants: ["event_id", "participant_id", "name", "password_hash", "created_at", "updated_at", "address", "preferred_area"],
+  participants: [
+    "event_id",
+    "participant_id",
+    "name",
+    "password_hash",
+    "created_at",
+    "updated_at",
+    "address",
+    "preferred_area",
+    "address_lat",
+    "address_lng",
+    "address_label",
+    "address_source",
+    "preferred_lat",
+    "preferred_lng",
+    "preferred_label",
+    "preferred_source",
+  ],
   availability: ["event_id", "participant_id", "slots_bitmap", "updated_at", "created_at"],
   invitations: ["event_id", "image_dataurl", "created_at"],
-  places: ["event_id", "place_id", "participant_id", "participant_name", "name", "area", "note", "created_at"],
+  places: [
+    "event_id",
+    "place_id",
+    "participant_id",
+    "participant_name",
+    "name",
+    "area",
+    "note",
+    "lat",
+    "lng",
+    "location_label",
+    "location_source",
+    "created_at",
+  ],
 };
 
 function loadCredentials() {
@@ -178,20 +215,22 @@ async function ensureSheet(name) {
       throw new Error(`Sheet create failed: ${addPayload.error?.message || addResponse.status}`);
     }
 
-    const headerRange = encodeURIComponent(`${quoteSheetTitle(name)}!A1:${columnName(headers.length)}1`);
-    const writeResponse = await fetch(
-      `https://sheets.googleapis.com/v4/spreadsheets/${sheetsId}/values/${headerRange}?valueInputOption=RAW`,
-      {
-        method: "PUT",
-        headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
-        body: JSON.stringify({ values: [headers] }),
-      },
-    );
-    const writePayload = await writeResponse.json().catch(() => ({}));
+  }
 
-    if (!writeResponse.ok) {
-      throw new Error(`Sheet header write failed: ${writePayload.error?.message || writeResponse.status}`);
-    }
+  // Keep existing sheets compatible when the schema gains trailing columns.
+  const headerRange = encodeURIComponent(`${quoteSheetTitle(name)}!A1:${columnName(headers.length)}1`);
+  const writeResponse = await fetch(
+    `https://sheets.googleapis.com/v4/spreadsheets/${sheetsId}/values/${headerRange}?valueInputOption=RAW`,
+    {
+      method: "PUT",
+      headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
+      body: JSON.stringify({ values: [headers] }),
+    },
+  );
+  const writePayload = await writeResponse.json().catch(() => ({}));
+
+  if (!writeResponse.ok) {
+    throw new Error(`Sheet header write failed: ${writePayload.error?.message || writeResponse.status}`);
   }
 
   ensuredSheets.add(cacheKey);

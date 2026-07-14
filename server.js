@@ -120,7 +120,7 @@ async function handleCreateEvent(request, response) {
   const invalidReason = validEventInput(body);
   if (invalidReason) return sendError(response, 400, invalidReason);
 
-  const eventId = await store.createEvent({
+  const created = await store.createEvent({
     name: body.name.trim().slice(0, 50),
     mode: body.mode,
     expectedCount: body.expectedCount ? Number(body.expectedCount) : null,
@@ -133,11 +133,7 @@ async function handleCreateEvent(request, response) {
     notifyEmail: body.notifyEmail || "",
   });
 
-  if (body.invitationImage) {
-    await store.saveInvitation(eventId, body.invitationImage);
-  }
-
-  sendJson(response, 200, { eventId });
+  sendJson(response, 200, created);
 }
 
 async function handleGetEvent(request, response, eventId) {
@@ -154,8 +150,7 @@ async function handleGetEvent(request, response, eventId) {
     participants: result.participants.map((p) => ({
       participantId: p.participantId,
       name: p.name,
-      address: p.address,
-      preferredArea: p.preferredArea,
+      hasLocation: Boolean(p.address || p.preferredArea),
       slots: p.slots,
     })),
     bestTimes: best,
@@ -172,6 +167,7 @@ async function handleJoin(request, response, eventId) {
 
   const event = await store.getEvent(eventId);
   if (!event) return sendError(response, 404, "일정을 찾을 수 없어요.");
+  if (event.event.status === "confirmed") return sendError(response, 409, "이미 확정된 일정이에요.");
 
   const result = await store.joinEvent(eventId, {
     name,
@@ -190,6 +186,7 @@ async function handleAddPlace(request, response, eventId) {
   const body = await readBody(request);
   const event = await store.getEvent(eventId);
   if (!event) return sendError(response, 404, "일정을 찾을 수 없어요.");
+  if (event.event.status === "confirmed") return sendError(response, 409, "확정된 일정에는 장소를 추가할 수 없어요.");
 
   const result = await store.addPlaceSuggestion(eventId, {
     participantId: body.participantId || "",
@@ -210,7 +207,63 @@ async function handleSaveAvailability(request, response, eventId) {
   const body = await readBody(request);
   if (!body.participantId || !Array.isArray(body.slots)) return sendError(response, 400, "잘못된 요청이에요.");
 
+  const full = await store.getEvent(eventId);
+  if (!full) return sendError(response, 404, "일정을 찾을 수 없어요.");
+  if (full.event.status === "confirmed") return sendError(response, 409, "이미 확정된 일정이에요.");
+
   await store.saveAvailability(eventId, body.participantId, body.slots.map((v) => (v ? 1 : 0)));
+  sendJson(response, 200, { ok: true });
+}
+
+async function handleConfirmEvent(request, response, eventId) {
+  const body = await readBody(request);
+  const full = await store.getEvent(eventId);
+  if (!full) return sendError(response, 404, "일정을 찾을 수 없어요.");
+
+  const grid = schedule.buildSlotGrid(full.event);
+  const date = String(body.date || "");
+  const startLabel = String(body.startLabel || "");
+  const endLabel = String(body.endLabel || "");
+  const dateExists = grid.columns.some((column) => column.key === date);
+  const startIndex = grid.rows.findIndex((row) => row.label === startLabel);
+  const endMinutes = endLabel.split(":").map(Number);
+  const endTotal = endMinutes.length === 2 ? endMinutes[0] * 60 + endMinutes[1] : -1;
+  const eventEnd = full.event.timeEnd.split(":").map(Number);
+  const eventEndTotal = eventEnd[0] * 60 + eventEnd[1];
+  const startMinutes = startLabel.split(":").map(Number);
+  const startTotal = startMinutes.length === 2 ? startMinutes[0] * 60 + startMinutes[1] : -1;
+
+  if (!dateExists || startIndex < 0 || endTotal <= startTotal || endTotal > eventEndTotal) {
+    return sendError(response, 400, "확정할 후보 시간이 올바르지 않아요.");
+  }
+
+  const result = await store.confirmEvent(eventId, {
+    ownerToken: body.ownerToken,
+    date,
+    startLabel,
+    endLabel,
+    placeName: body.placeName || "",
+    placeArea: body.placeArea || "",
+  });
+  if (result.error === "OWNER_TOKEN_MISMATCH") return sendError(response, 403, "일정을 만든 사람만 확정할 수 있어요.");
+  if (result.error === "EVENT_NOT_FOUND") return sendError(response, 404, "일정을 찾을 수 없어요.");
+  sendJson(response, 200, { ok: true });
+}
+
+async function handleSaveInvitation(request, response, eventId) {
+  const body = await readBody(request);
+  const imageDataUrl = String(body.imageDataUrl || "");
+  if (!/^data:image\/(webp|png|jpeg);base64,/.test(imageDataUrl)) {
+    return sendError(response, 400, "공유 이미지 형식이 올바르지 않아요.");
+  }
+  if (imageDataUrl.length > 48000) {
+    return sendError(response, 413, "공유 이미지가 너무 커요. 그림을 조금 단순하게 다시 저장해주세요.");
+  }
+
+  const result = await store.saveInvitationForOwner(eventId, body.ownerToken, imageDataUrl);
+  if (result.error === "OWNER_TOKEN_MISMATCH") return sendError(response, 403, "일정을 만든 사람만 공유 이미지를 저장할 수 있어요.");
+  if (result.error === "EVENT_NOT_CONFIRMED") return sendError(response, 409, "일정을 확정한 뒤 공유 이미지를 만들 수 있어요.");
+  if (result.error === "EVENT_NOT_FOUND") return sendError(response, 404, "일정을 찾을 수 없어요.");
   sendJson(response, 200, { ok: true });
 }
 
@@ -277,6 +330,12 @@ async function routeApi(request, response, url) {
   }
   if (request.method === "POST" && parts[1] === "events" && parts[3] === "places") {
     return handleAddPlace(request, response, parts[2]);
+  }
+  if (request.method === "POST" && parts[1] === "events" && parts[3] === "confirm") {
+    return handleConfirmEvent(request, response, parts[2]);
+  }
+  if (request.method === "PUT" && parts[1] === "events" && parts[3] === "invitation") {
+    return handleSaveInvitation(request, response, parts[2]);
   }
   if (request.method === "GET" && parts[1] === "cron" && parts[2] === "deadline") {
     return handleCronDeadline(request, response);

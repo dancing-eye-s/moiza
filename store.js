@@ -3,6 +3,7 @@ const fs = require("node:fs/promises");
 const path = require("node:path");
 const crypto = require("node:crypto");
 const google = require("./google");
+const geocoder = require("./geocoder");
 
 const ROOT = __dirname;
 const DATA_DIR = process.env.VERCEL ? path.join("/tmp", "moiza-go-data") : path.join(ROOT, "data");
@@ -29,45 +30,59 @@ function hashLegacyPassword(password) {
   return crypto.createHash("sha256").update(`${["moi", "za"].join("")}:${password}`).digest("hex");
 }
 
-const AREA_COORDS = [
-  { key: "홍대", names: ["홍대", "합정", "상수", "망원", "연남"], lat: 37.556, lng: 126.923 },
-  { key: "신촌", names: ["신촌", "이대", "서강대"], lat: 37.556, lng: 126.936 },
-  { key: "강남", names: ["강남", "역삼", "선릉", "삼성", "논현", "신논현"], lat: 37.498, lng: 127.028 },
-  { key: "잠실", names: ["잠실", "송파", "석촌", "방이"], lat: 37.514, lng: 127.106 },
-  { key: "종로", names: ["종로", "광화문", "을지로", "명동", "시청"], lat: 37.57, lng: 126.982 },
-  { key: "성수", names: ["성수", "건대", "왕십리", "뚝섬"], lat: 37.544, lng: 127.055 },
-  { key: "여의도", names: ["여의도", "영등포", "당산"], lat: 37.525, lng: 126.925 },
-  { key: "용산", names: ["용산", "이태원", "한남", "숙대입구"], lat: 37.532, lng: 126.99 },
-  { key: "사당", names: ["사당", "교대", "방배", "이수"], lat: 37.477, lng: 126.981 },
-  { key: "서울역", names: ["서울역", "공덕", "충정로", "마포"], lat: 37.554, lng: 126.97 },
-];
-
-function textAreaMatches(text) {
-  const source = String(text || "");
-  return AREA_COORDS.filter((area) => area.names.some((name) => source.includes(name)));
+function hashOwnerToken(token) {
+  return crypto.createHash("sha256").update(`moiza-go-owner:${token}`).digest("hex");
 }
 
-function nearestArea(lat, lng) {
-  return AREA_COORDS.reduce((best, area) => {
-    const distance = Math.hypot(area.lat - lat, area.lng - lng);
-    return !best || distance < best.distance ? { ...area, distance } : best;
-  }, null);
+function resolvedLocation(text, lat, lng, source, label) {
+  const parsedLat = Number(lat);
+  const parsedLng = Number(lng);
+  if (Number.isFinite(parsedLat) && Number.isFinite(parsedLng) && (parsedLat !== 0 || parsedLng !== 0)) {
+    return { lat: parsedLat, lng: parsedLng, source: source || "stored", label: label || text };
+  }
+  return geocoder.knownLocation(text);
 }
 
 function recommendMeetingPlace(participants, placeSuggestions = []) {
   const weighted = [];
   const preferredLabels = [];
+  const peopleWithLocation = new Set();
+  const unresolved = [];
 
   participants.forEach((participant) => {
-    textAreaMatches(participant.address).forEach((area) => weighted.push({ ...area, weight: 1.4 }));
-    textAreaMatches(participant.preferredArea).forEach((area) => {
-      weighted.push({ ...area, weight: 1 });
-      preferredLabels.push(area.key);
-    });
+    const address = resolvedLocation(
+      participant.address,
+      participant.addressLat,
+      participant.addressLng,
+      participant.addressSource,
+      participant.addressLabel,
+    );
+    const preferred = resolvedLocation(
+      participant.preferredArea,
+      participant.preferredLat,
+      participant.preferredLng,
+      participant.preferredSource,
+      participant.preferredLabel,
+    );
+    if (address) {
+      weighted.push({ ...address, weight: 1.4 });
+      peopleWithLocation.add(participant.participantId || participant.name);
+    } else if (participant.address) {
+      unresolved.push(participant.address);
+    }
+    if (preferred) {
+      weighted.push({ ...preferred, weight: 1 });
+      preferredLabels.push(preferred.label || participant.preferredArea);
+      peopleWithLocation.add(participant.participantId || participant.name);
+    } else if (participant.preferredArea) {
+      unresolved.push(participant.preferredArea);
+    }
   });
 
   placeSuggestions.forEach((place) => {
-    textAreaMatches(`${place.area} ${place.name}`).forEach((area) => weighted.push({ ...area, weight: 0.8 }));
+    const location = resolvedLocation(`${place.area} ${place.name}`, place.lat, place.lng, place.locationSource, place.locationLabel);
+    if (location) weighted.push({ ...location, weight: 0.8 });
+    else if (place.area || place.name) unresolved.push(place.area || place.name);
   });
 
   if (!weighted.length) {
@@ -76,23 +91,30 @@ function recommendMeetingPlace(participants, placeSuggestions = []) {
       reason: "참여자의 거주지나 희망 지역이 입력되면 중간 지점을 자동으로 계산해요.",
       suggestions: ["참여자별 거주지 입력", "희망 지역 추가", "직접 장소 추천"],
       confidence: "low",
+      peopleCount: 0,
+      unresolvedCount: unresolved.length,
+      usesOpenStreetMap: false,
     };
   }
 
   const totalWeight = weighted.reduce((sum, area) => sum + area.weight, 0);
   const lat = weighted.reduce((sum, area) => sum + area.lat * area.weight, 0) / totalWeight;
   const lng = weighted.reduce((sum, area) => sum + area.lng * area.weight, 0) / totalWeight;
-  const center = nearestArea(lat, lng);
-  const uniquePreferred = [...new Set(preferredLabels)].slice(0, 3);
+  const center = geocoder.nearestHub(lat, lng);
+  const uniquePreferred = [...new Set(preferredLabels)].slice(0, 2);
+  const peopleCount = peopleWithLocation.size;
   const stationLabel = center.key.endsWith("역") ? center.key : `${center.key}역`;
 
   return {
     area: center.key,
-    reason: `${weighted.length}개의 거주지/희망지역 정보를 기준으로 이동 균형이 좋은 지역을 골랐어요.${
-      uniquePreferred.length ? ` 선호 지역도 ${uniquePreferred.join(", ")} 중심으로 반영했어요.` : ""
-    }`,
+    reason: `${peopleCount || weighted.length}명의 ${peopleCount >= 2 ? "위치 중심점을" : "위치를"} 기준으로 이동 균형이 좋은 지역을 골랐어요.${
+      uniquePreferred.length ? ` 희망 지역 ${uniquePreferred.join(", ")}도 함께 반영했어요.` : ""
+    }${unresolved.length ? ` 해석하지 못한 입력 ${unresolved.length}개는 계산에서 제외했어요.` : ""}`,
     suggestions: [`${stationLabel} 근처`, `${center.key} 카페/식당 밀집 거리`, `${center.key} 대중교통 접근 좋은 출구 주변`],
-    confidence: weighted.length >= 2 ? "medium" : "low",
+    confidence: peopleCount >= 3 ? "high" : peopleCount >= 2 ? "medium" : "low",
+    peopleCount,
+    unresolvedCount: unresolved.length,
+    usesOpenStreetMap: weighted.some((item) => item.source === "openstreetmap"),
   };
 }
 
@@ -154,6 +176,7 @@ function slotCount(event) {
 
 async function createEvent(input) {
   const eventId = randomId(8);
+  const ownerToken = crypto.randomBytes(18).toString("base64url");
   const event = {
     event_id: eventId,
     name: input.name,
@@ -170,6 +193,13 @@ async function createEvent(input) {
     email_attempts: "0",
     created_at: nowIso(),
     status: "active",
+    owner_token_hash: hashOwnerToken(ownerToken),
+    confirmed_date: "",
+    confirmed_start: "",
+    confirmed_end: "",
+    confirmed_place_name: "",
+    confirmed_place_area: "",
+    confirmed_at: "",
   };
 
   if (google.isConfigured()) {
@@ -180,7 +210,7 @@ async function createEvent(input) {
     });
   }
 
-  return eventId;
+  return { eventId, ownerToken };
 }
 
 async function getEvent(eventId) {
@@ -208,6 +238,14 @@ async function getEvent(eventId) {
         hasPassword: Boolean(participant.password_hash),
         address: participant.address || "",
         preferredArea: participant.preferred_area || "",
+        addressLat: participant.address_lat || "",
+        addressLng: participant.address_lng || "",
+        addressLabel: participant.address_label || "",
+        addressSource: participant.address_source || "",
+        preferredLat: participant.preferred_lat || "",
+        preferredLng: participant.preferred_lng || "",
+        preferredLabel: participant.preferred_label || "",
+        preferredSource: participant.preferred_source || "",
         slots: availability ? bitmapToSlots(availability.slots_bitmap, total) : new Array(total).fill(0),
       };
     });
@@ -228,6 +266,14 @@ async function getEvent(eventId) {
     hasPassword: Boolean(p.password_hash),
     address: p.address || "",
     preferredArea: p.preferred_area || "",
+    addressLat: p.address_lat || "",
+    addressLng: p.address_lng || "",
+    addressLabel: p.address_label || "",
+    addressSource: p.address_source || "",
+    preferredLat: p.preferred_lat || "",
+    preferredLng: p.preferred_lng || "",
+    preferredLabel: p.preferred_label || "",
+    preferredSource: p.preferred_source || "",
     slots: p.slots && p.slots.length === total ? p.slots : new Array(total).fill(0),
   }));
 
@@ -251,6 +297,17 @@ function parseEventRow(row) {
     emailSent: row.email_sent === "TRUE" || row.email_sent === true,
     createdAt: row.created_at,
     status: row.status || "active",
+    confirmation:
+      row.status === "confirmed"
+        ? {
+            date: row.confirmed_date,
+            startLabel: row.confirmed_start,
+            endLabel: row.confirmed_end,
+            placeName: row.confirmed_place_name || "",
+            placeArea: row.confirmed_place_area || "",
+            confirmedAt: row.confirmed_at || "",
+          }
+        : null,
   };
 }
 
@@ -272,12 +329,30 @@ async function joinEvent(eventId, { name, password, address, preferredArea }) {
   const passwordHash = hashPassword(password);
   const cleanAddress = String(address || "").trim().slice(0, 80);
   const cleanPreferredArea = String(preferredArea || "").trim().slice(0, 80);
+  const [addressLocation, preferredLocation] = await Promise.all([
+    geocoder.geocodeLocation(cleanAddress),
+    geocoder.geocodeLocation(cleanPreferredArea),
+  ]);
+  const locationFields = {
+    address_lat: addressLocation?.lat || "",
+    address_lng: addressLocation?.lng || "",
+    address_label: addressLocation?.label || "",
+    address_source: addressLocation?.source || "",
+    preferred_lat: preferredLocation?.lat || "",
+    preferred_lng: preferredLocation?.lng || "",
+    preferred_label: preferredLocation?.label || "",
+    preferred_source: preferredLocation?.source || "",
+  };
 
   if (existing) {
     if (existing.passwordHash && existing.passwordHash !== passwordHash && existing.passwordHash !== hashLegacyPassword(password)) {
       return { error: "PASSWORD_MISMATCH" };
     }
-    await updateParticipantProfile(eventId, existing.participantId, { address: cleanAddress, preferredArea: cleanPreferredArea });
+    await updateParticipantProfile(eventId, existing.participantId, {
+      address: cleanAddress,
+      preferredArea: cleanPreferredArea,
+      locationFields,
+    });
     return { participantId: existing.participantId };
   }
 
@@ -291,6 +366,7 @@ async function joinEvent(eventId, { name, password, address, preferredArea }) {
     updated_at: nowIso(),
     address: cleanAddress,
     preferred_area: cleanPreferredArea,
+    ...locationFields,
   };
 
   if (google.isConfigured()) {
@@ -307,7 +383,7 @@ async function joinEvent(eventId, { name, password, address, preferredArea }) {
   return { participantId };
 }
 
-async function updateParticipantProfile(eventId, participantId, { address, preferredArea }) {
+async function updateParticipantProfile(eventId, participantId, { address, preferredArea, locationFields }) {
   if (!address && !preferredArea) return;
 
   if (google.isConfigured()) {
@@ -318,6 +394,7 @@ async function updateParticipantProfile(eventId, participantId, { address, prefe
       ...row,
       address: address || row.address,
       preferred_area: preferredArea || row.preferred_area,
+      ...locationFields,
       updated_at: nowIso(),
     });
     return;
@@ -329,6 +406,7 @@ async function updateParticipantProfile(eventId, participantId, { address, prefe
     if (!participant) return;
     participant.address = address || participant.address || "";
     participant.preferred_area = preferredArea || participant.preferred_area || "";
+    Object.assign(participant, locationFields);
     participant.updated_at = nowIso();
   });
 }
@@ -341,19 +419,30 @@ function parsePlaceRow(row) {
     name: row.name,
     area: row.area,
     note: row.note,
+    lat: row.lat || "",
+    lng: row.lng || "",
+    locationLabel: row.location_label || "",
+    locationSource: row.location_source || "",
     createdAt: row.created_at,
   };
 }
 
 async function addPlaceSuggestion(eventId, { participantId, participantName, name, area, note }) {
+  const cleanName = String(name || "").trim().slice(0, 60);
+  const cleanArea = String(area || "").trim().slice(0, 60);
+  const location = await geocoder.geocodeLocation(`${cleanArea} ${cleanName}`.trim());
   const record = {
     event_id: eventId,
     place_id: randomId(8),
     participant_id: participantId || "",
     participant_name: String(participantName || "").trim().slice(0, 20),
-    name: String(name || "").trim().slice(0, 60),
-    area: String(area || "").trim().slice(0, 60),
+    name: cleanName,
+    area: cleanArea,
     note: String(note || "").trim().slice(0, 120),
+    lat: location?.lat || "",
+    lng: location?.lng || "",
+    location_label: location?.label || "",
+    location_source: location?.source || "",
     created_at: nowIso(),
   };
 
@@ -373,6 +462,36 @@ async function addPlaceSuggestion(eventId, { participantId, participantName, nam
   }
 
   return { placeId: record.place_id };
+}
+
+async function confirmEvent(eventId, { ownerToken, date, startLabel, endLabel, placeName, placeArea }) {
+  const tokenHash = hashOwnerToken(String(ownerToken || ""));
+  const confirmation = {
+    status: "confirmed",
+    confirmed_date: String(date || "").slice(0, 20),
+    confirmed_start: String(startLabel || "").slice(0, 10),
+    confirmed_end: String(endLabel || "").slice(0, 10),
+    confirmed_place_name: String(placeName || "").trim().slice(0, 60),
+    confirmed_place_area: String(placeArea || "").trim().slice(0, 60),
+    confirmed_at: nowIso(),
+  };
+
+  if (google.isConfigured()) {
+    const rows = await google.readSheetRows("events");
+    const row = rows.find((item) => item.event_id === eventId);
+    if (!row) return { error: "EVENT_NOT_FOUND" };
+    if (!row.owner_token_hash || row.owner_token_hash !== tokenHash) return { error: "OWNER_TOKEN_MISMATCH" };
+    await google.updateRow("events", row.__row, { ...row, ...confirmation });
+    return { ok: true };
+  }
+
+  return withLocalState((state) => {
+    const event = state.events.find((item) => item.event_id === eventId);
+    if (!event) return { error: "EVENT_NOT_FOUND" };
+    if (!event.owner_token_hash || event.owner_token_hash !== tokenHash) return { error: "OWNER_TOKEN_MISMATCH" };
+    Object.assign(event, confirmation);
+    return { ok: true };
+  });
 }
 
 async function saveAvailability(eventId, participantId, slots) {
@@ -401,7 +520,7 @@ async function saveAvailability(eventId, participantId, slots) {
 }
 
 async function saveInvitation(eventId, imageDataUrl) {
-  const record = { event_id: eventId, image_dataurl: imageDataUrl.slice(0, 280000), created_at: nowIso() };
+  const record = { event_id: eventId, image_dataurl: imageDataUrl, created_at: nowIso() };
 
   if (google.isConfigured()) {
     await google.upsertRow("invitations", ["event_id"], record);
@@ -414,6 +533,27 @@ async function saveInvitation(eventId, imageDataUrl) {
   }
 
   return true;
+}
+
+async function saveInvitationForOwner(eventId, ownerToken, imageDataUrl) {
+  const tokenHash = hashOwnerToken(String(ownerToken || ""));
+
+  if (google.isConfigured()) {
+    const rows = await google.readSheetRows("events");
+    const event = rows.find((item) => item.event_id === eventId);
+    if (!event) return { error: "EVENT_NOT_FOUND" };
+    if (!event.owner_token_hash || event.owner_token_hash !== tokenHash) return { error: "OWNER_TOKEN_MISMATCH" };
+    if (event.status !== "confirmed") return { error: "EVENT_NOT_CONFIRMED" };
+  } else {
+    const state = readLocalState();
+    const event = state.events.find((item) => item.event_id === eventId);
+    if (!event) return { error: "EVENT_NOT_FOUND" };
+    if (!event.owner_token_hash || event.owner_token_hash !== tokenHash) return { error: "OWNER_TOKEN_MISMATCH" };
+    if (event.status !== "confirmed") return { error: "EVENT_NOT_CONFIRMED" };
+  }
+
+  await saveInvitation(eventId, imageDataUrl);
+  return { ok: true };
 }
 
 async function getInvitation(eventId) {
@@ -503,7 +643,9 @@ module.exports = {
   joinEvent,
   saveAvailability,
   addPlaceSuggestion,
+  confirmEvent,
   saveInvitation,
+  saveInvitationForOwner,
   getInvitation,
   listAllEvents,
   purgeEvent,

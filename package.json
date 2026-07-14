@@ -5,7 +5,8 @@
   "description": "모이자고(MOIZA-GO) — 모바일 우선 그룹 일정 조율 서비스",
   "scripts": {
     "start": "node server.js",
-    "check": "node --check server.js && node --check script.js && node --check google.js && node --check 'api/[...path].js'"
+    "check": "node --check server.js && node --check script.js && node --check store.js && node --check schedule.js && node --check geocoder.js && node --check google.js && node --check 'api/[...path].js'",
+    "test": "node --test"
   },
   "engines": {
     "node": ">=20"
