@@ -35,3 +35,11 @@ test("nearestHub recommends a central hub from arbitrary coordinates", () => {
   assert.ok(hub);
   assert.ok(hub.distance < 20);
 });
+
+test("midpointCandidates returns three ranked hubs for multiple departures", async () => {
+  const result = await geocoder.midpointCandidates(["부평역", "강남역", "잠실역"]);
+
+  assert.equal(result.resolvedCount, 3);
+  assert.equal(result.candidates.length, 3);
+  assert.ok(result.candidates.every((candidate) => candidate.area && candidate.description));
+});

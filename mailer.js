@@ -54,18 +54,22 @@ function resultUrl(eventId) {
   return `${base}/e/${eventId}/result`;
 }
 
+function escapeHtml(value) {
+  return String(value || "").replace(/[&<>"']/g, (character) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[character]);
+}
+
 function renderHtml({ eventName, eventId, participantCount, bestTimes }) {
   const rows = bestTimes
     .map(
       (t) =>
-        `<li style="margin-bottom:8px;"><strong>${t.date} ${t.startLabel}–${t.endLabel}</strong> · ${t.count}/${t.total}명 가능</li>`,
+        `<li style="margin-bottom:8px;"><strong>${escapeHtml(t.date)} ${escapeHtml(t.startLabel)}–${escapeHtml(t.endLabel)}</strong> · ${Number(t.count)}/${Number(t.total)}명 가능</li>`,
     )
     .join("");
 
   return `
     <div style="font-family:-apple-system,BlinkMacSystemFont,'Apple SD Gothic Neo',sans-serif;max-width:480px;margin:0 auto;padding:24px;">
-      <h2 style="color:#1E2A3B;">'${eventName}' 일정 조율 결과가 나왔어요</h2>
-      <p style="color:#8B95A1;">참여자 ${participantCount}명이 응답했어요.</p>
+      <h2 style="color:#1E2A3B;">'${escapeHtml(eventName)}' 일정 조율 결과가 나왔어요</h2>
+      <p style="color:#8B95A1;">참여자 ${Number(participantCount)}명이 응답했어요.</p>
       <ul style="padding-left:20px;color:#1E2A3B;">${rows || "<li>겹치는 시간이 없어요.</li>"}</ul>
       <a href="${resultUrl(eventId)}" style="display:inline-block;margin-top:16px;padding:12px 20px;background:#F2664A;color:#fff;text-decoration:none;border-radius:12px;font-weight:700;">결과 한눈에 보기</a>
     </div>
@@ -79,7 +83,8 @@ async function sendResultEmail({ to, eventName, eventId, participantCount, bestT
   }
 
   const token = await getAccessToken();
-  const subject = `[모이자고] '${eventName}' 일정 조율 결과가 나왔어요`;
+  const safeEventName = String(eventName || "").replace(/[\r\n]/g, " ");
+  const subject = `[모이자고] '${safeEventName}' 일정 조율 결과가 나왔어요`;
   const html = renderHtml({ eventName, eventId, participantCount, bestTimes });
   const sender = process.env.GMAIL_SENDER_EMAIL;
 

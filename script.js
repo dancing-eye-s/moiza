@@ -36,6 +36,7 @@
     let dragging = false;
     let value = null;
     let lastCell = null;
+    let lastPoint = null;
 
     function cellAt(x, y) {
       const el = document.elementFromPoint(x, y);
@@ -48,9 +49,22 @@
       handlers.onPaint(cell, value);
     }
 
+    function paintPath(from, to) {
+      if (!from) {
+        paint(cellAt(to.x, to.y));
+        return;
+      }
+      const distance = Math.hypot(to.x - from.x, to.y - from.y);
+      const steps = Math.max(1, Math.ceil(distance / 6));
+      for (let i = 1; i <= steps; i += 1) {
+        const ratio = i / steps;
+        paint(cellAt(from.x + (to.x - from.x) * ratio, from.y + (to.y - from.y) * ratio));
+      }
+    }
+
     container.addEventListener("pointerdown", (e) => {
       const cell = e.target.closest(cellSelector);
-      if (!cell) return;
+      if (!cell || (handlers.canStart && !handlers.canStart(e))) return;
       e.preventDefault();
       try {
         container.setPointerCapture(e.pointerId);
@@ -60,13 +74,19 @@
       dragging = true;
       value = !handlers.isActive(cell);
       lastCell = null;
+      lastPoint = { x: e.clientX, y: e.clientY };
       paint(cell);
     });
 
     container.addEventListener("pointermove", (e) => {
       if (!dragging) return;
       e.preventDefault();
-      paint(cellAt(e.clientX, e.clientY));
+      const events = typeof e.getCoalescedEvents === "function" ? e.getCoalescedEvents() : [e];
+      events.forEach((event) => {
+        const point = { x: event.clientX, y: event.clientY };
+        paintPath(lastPoint, point);
+        lastPoint = point;
+      });
     });
 
     function end() {
@@ -74,6 +94,7 @@
       dragging = false;
       value = null;
       lastCell = null;
+      lastPoint = null;
       handlers.onCommit();
     }
 
@@ -95,9 +116,12 @@
   }
 
   async function api(method, path, body) {
+    const headers = {};
+    if (body) headers["Content-Type"] = "application/json";
+    if (eventPageState?.myParticipantId) headers["X-Moiza-Participant"] = eventPageState.myParticipantId;
     const response = await fetch(`/api${path}`, {
       method,
-      headers: body ? { "Content-Type": "application/json" } : undefined,
+      headers,
       body: body ? JSON.stringify(body) : undefined,
     });
     const payload = await response.json().catch(() => ({}));
@@ -900,6 +924,7 @@
     mySlots: null,
     activeDateIndex: 0,
     activeTab: "mine",
+    interactionMode: "scroll",
     pollTimer: null,
     ownerToken: null,
   };
@@ -914,6 +939,10 @@
 
   async function renderEventPage(eventId) {
     APP.innerHTML = `<div class="screen"><div class="empty-state"><div class="venn-spinner"><span></span><span></span><span></span></div>불러오는 중이에요…</div></div>`;
+
+    const saved = JSON.parse(localStorage.getItem(participantStorageKey(eventId)) || "null");
+    eventPageState.myParticipantId = saved?.participantId || null;
+    eventPageState.myName = saved?.name || null;
 
     let data;
     try {
@@ -930,11 +959,8 @@
       return renderResult(eventId);
     }
 
-    const saved = JSON.parse(localStorage.getItem(participantStorageKey(eventId)) || "null");
     if (saved) {
-      eventPageState.myParticipantId = saved.participantId;
-      eventPageState.myName = saved.name;
-      const mine = data.participants.find((p) => p.participantId === saved.participantId);
+      const mine = data.participants.find((p) => p.isCurrent);
       eventPageState.mySlots = mine ? [...mine.slots] : new Array(data.grid.total).fill(0);
       return renderGridScreen();
     }
@@ -1150,7 +1176,7 @@
   }
 
   function visibleColumnCount() {
-    return eventPageState.activeTab === "group" ? eventPageState.data.grid.columns.length : 3;
+    return eventPageState.activeTab === "group" ? eventPageState.data.grid.columns.length : 5;
   }
 
   function clampActiveDateIndex(grid) {
@@ -1273,6 +1299,82 @@
     );
   }
 
+  function renderMidpointCalculator() {
+    return `
+      <section class="midpoint-calculator">
+        <div class="place-eyebrow">중간 지점 계산기</div>
+        <h2>출발 지역으로 후보 찾기</h2>
+        <textarea class="midpoint-input" id="midpoint-regions" maxlength="500" placeholder="예: 부평역, 강남역, 잠실역"></textarea>
+        <button type="button" class="mini-btn midpoint-calculate" id="midpoint-calculate">계산하기</button>
+        <div id="midpoint-results" aria-live="polite"></div>
+      </section>
+    `;
+  }
+
+  function bindMidpointCalculator() {
+    const calculateButton = document.getElementById("midpoint-calculate");
+    if (!calculateButton) return;
+
+    calculateButton.addEventListener("click", async () => {
+      const input = document.getElementById("midpoint-regions");
+      const results = document.getElementById("midpoint-results");
+      const regions = input.value
+        .split(/[\n,]/)
+        .map((region) => region.trim())
+        .filter(Boolean)
+        .slice(0, 8);
+      if (regions.length < 2) return showToast("출발 지역을 2개 이상 입력해주세요");
+
+      calculateButton.disabled = true;
+      calculateButton.textContent = "계산 중…";
+      try {
+        const payload = await api("POST", `/events/${eventPageState.eventId}/places/calculate`, { regions });
+        results.innerHTML = payload.candidates.length
+          ? `<div class="midpoint-options">
+              ${payload.candidates
+                .map(
+                  (candidate, index) => `
+                    <label class="midpoint-option">
+                      <input type="radio" name="midpoint-candidate" value="${escapeHtml(candidate.area)}" ${index === 0 ? "checked" : ""} />
+                      <span><strong>${escapeHtml(candidate.area)}</strong><small>${escapeHtml(candidate.description)}</small></span>
+                    </label>`,
+                )
+                .join("")}
+              <button type="button" class="cta midpoint-propose" id="midpoint-propose">선택한 지역 제안하기</button>
+            </div>`
+          : `<p class="midpoint-empty">지역을 찾지 못했어요. 역 이름이나 구체적인 지역명으로 다시 입력해주세요.</p>`;
+
+        const proposeButton = document.getElementById("midpoint-propose");
+        if (proposeButton) {
+          proposeButton.addEventListener("click", async () => {
+            const selected = document.querySelector('input[name="midpoint-candidate"]:checked');
+            if (!selected) return;
+            proposeButton.disabled = true;
+            try {
+              await flushAvailability();
+              await api("POST", `/events/${eventPageState.eventId}/places`, {
+                participantId: eventPageState.myParticipantId,
+                area: selected.value,
+                note: `${regions.join(", ")}의 중간 지점 후보`,
+              });
+              eventPageState.data = await api("GET", `/events/${eventPageState.eventId}`);
+              showToast("모임 지역으로 제안했어요");
+              renderGridScreen();
+            } catch (error) {
+              showToast(error.message);
+              proposeButton.disabled = false;
+            }
+          });
+        }
+      } catch (error) {
+        showToast(error.message);
+      } finally {
+        calculateButton.disabled = false;
+        calculateButton.textContent = "계산하기";
+      }
+    });
+  }
+
   function openConfirmSheet() {
     const { bestTimes = [], placeRecommendation, placeSuggestions = [] } = eventPageState.data;
     if (!bestTimes.length) return showToast("가능 시간이 입력된 뒤 확정할 수 있어요");
@@ -1365,8 +1467,17 @@
               </div>`
             : `<div class="grid-summary">${grid.columns.length}일 전체 집계 · ${event.timeStart}–${event.timeEnd}</div>`
         }
+        ${
+          eventPageState.activeTab === "mine"
+            ? `<div class="interaction-toggle" aria-label="시간표 동작 모드">
+                <button type="button" data-interaction="scroll" class="${eventPageState.interactionMode === "scroll" ? "active" : ""}" aria-pressed="${eventPageState.interactionMode === "scroll"}">스크롤</button>
+                <button type="button" data-interaction="select" class="${eventPageState.interactionMode === "select" ? "active" : ""}" aria-pressed="${eventPageState.interactionMode === "select"}">시간 선택</button>
+              </div>`
+            : ""
+        }
         <div id="grid-container"></div>
         ${renderPlaceCard()}
+        ${eventPageState.activeTab === "mine" ? renderMidpointCalculator() : ""}
       </div>
       <div class="cta-bar grid-cta">
         ${eventPageState.ownerToken && eventPageState.activeTab === "group" && event.status !== "confirmed" ? `<button class="cta" id="confirm-btn">일정 확정하기</button>` : ""}
@@ -1402,10 +1513,27 @@
       });
     });
 
+    document.querySelectorAll("[data-interaction]").forEach((button) => {
+      button.addEventListener("click", () => {
+        eventPageState.interactionMode = button.dataset.interaction;
+        document.querySelectorAll("[data-interaction]").forEach((item) => {
+          const active = item.dataset.interaction === eventPageState.interactionMode;
+          item.classList.toggle("active", active);
+          item.setAttribute("aria-pressed", String(active));
+        });
+        const myGrid = document.getElementById("my-grid");
+        if (myGrid) {
+          myGrid.classList.toggle("scroll-mode", eventPageState.interactionMode === "scroll");
+          myGrid.classList.toggle("select-mode", eventPageState.interactionMode === "select");
+        }
+      });
+    });
+
     document.getElementById("share-btn").addEventListener("click", () => shareEvent(event));
     const confirmButton = document.getElementById("confirm-btn");
     if (confirmButton) confirmButton.addEventListener("click", openConfirmSheet);
     bindPlaceButtons();
+    bindMidpointCalculator();
 
     renderGridBody();
     if (eventPageState.activeTab === "group") startPolling();
@@ -1428,7 +1556,7 @@
     if (eventPageState.activeTab === "mine") {
       container.innerHTML = `
         ${header}
-        <div class="slot-grid multi-day-grid" id="my-grid" style="${gridStyle}">
+        <div class="slot-grid multi-day-grid ${eventPageState.interactionMode === "scroll" ? "scroll-mode" : "select-mode"}" id="my-grid" style="${gridStyle}">
           ${grid.rows
             .map(
               (row) => `
@@ -1522,6 +1650,7 @@
     let touched = false;
 
     attachDragPaint(grid, ".slot-cell", {
+      canStart: () => !window.matchMedia("(pointer: coarse)").matches || eventPageState.interactionMode === "select",
       isActive: (cell) => cell.classList.contains("active"),
       onPaint: (cell, value) => {
         const rowIndex = Number(cell.dataset.row);

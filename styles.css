@@ -921,11 +921,46 @@ p.sub {
   margin: -2px 0 10px;
 }
 
+.interaction-toggle {
+  display: none;
+  grid-template-columns: 1fr 1fr;
+  gap: 3px;
+  padding: 3px;
+  margin-bottom: 10px;
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+}
+
+.interaction-toggle button {
+  min-height: 36px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--navy-soft);
+  font-size: 13px;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.interaction-toggle button.active {
+  background: var(--bg);
+  color: var(--navy);
+  box-shadow: 0 1px 3px rgba(30, 42, 59, 0.1);
+}
+
 .slot-grid {
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
   overflow: hidden;
   user-select: none;
+  touch-action: none;
+}
+
+.slot-grid.scroll-mode {
+  touch-action: pan-y;
+}
+
+.slot-grid.select-mode {
   touch-action: none;
 }
 
@@ -1445,6 +1480,93 @@ p.sub {
 
 .place-item p {
   margin: 5px 0 0;
+}
+
+.midpoint-calculator {
+  margin-top: 14px;
+  padding: 15px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+}
+
+.midpoint-calculator h2 {
+  margin: 0 0 10px;
+  font-size: 18px;
+  line-height: 1.3;
+}
+
+.midpoint-input {
+  width: 100%;
+  min-height: 72px;
+  resize: vertical;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: var(--bg);
+  color: var(--navy);
+  font: inherit;
+  font-size: 14px;
+  line-height: 1.5;
+  padding: 10px 11px;
+  outline: none;
+}
+
+.midpoint-input:focus {
+  border-color: var(--coral);
+}
+
+.midpoint-calculate {
+  width: 100%;
+  margin-top: 8px;
+  border-radius: var(--radius-sm);
+}
+
+.midpoint-options {
+  margin-top: 12px;
+}
+
+.midpoint-option {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 4px;
+  border-top: 1px solid var(--border);
+  cursor: pointer;
+}
+
+.midpoint-option input {
+  accent-color: var(--coral);
+}
+
+.midpoint-option span {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.midpoint-option strong {
+  font-size: 14px;
+}
+
+.midpoint-option small,
+.midpoint-empty {
+  color: var(--navy-soft);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.midpoint-propose {
+  margin-top: 8px;
+  padding: 13px;
+  font-size: 14px;
+  border-radius: var(--radius-sm);
+}
+
+@media (pointer: coarse) {
+  .interaction-toggle {
+    display: grid;
+  }
 }
 
 .attendee-list {

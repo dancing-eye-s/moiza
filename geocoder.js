@@ -90,12 +90,33 @@ async function geocodeLocation(text) {
 }
 
 function nearestHub(lat, lng) {
-  return HUBS.reduce((best, hub) => {
+  return nearestHubs(lat, lng, 1)[0] || null;
+}
+
+function nearestHubs(lat, lng, limit = 3) {
+  return HUBS.map((hub) => {
     const latKm = (hub.lat - lat) * 111;
     const lngKm = (hub.lng - lng) * 88;
     const distance = Math.hypot(latKm, lngKm);
-    return !best || distance < best.distance ? { ...hub, distance } : best;
-  }, null);
+    return { ...hub, distance };
+  })
+    .sort((a, b) => a.distance - b.distance)
+    .slice(0, Math.max(1, Math.min(Number(limit) || 3, 5)));
 }
 
-module.exports = { HUBS, geocodeLocation, knownLocation, nearestHub };
+async function midpointCandidates(regions) {
+  const cleanRegions = [...new Set((regions || []).map((region) => String(region).trim().slice(0, 60)).filter(Boolean))].slice(0, 8);
+  const locations = (await Promise.all(cleanRegions.map((region) => geocodeLocation(region)))).filter(Boolean);
+  if (locations.length < 2) return { candidates: [], resolvedCount: locations.length, unresolvedCount: cleanRegions.length - locations.length };
+
+  const lat = locations.reduce((sum, location) => sum + location.lat, 0) / locations.length;
+  const lng = locations.reduce((sum, location) => sum + location.lng, 0) / locations.length;
+  const candidates = nearestHubs(lat, lng, 3).map((hub, index) => ({
+    area: hub.key,
+    description: index === 0 ? `${locations.length}개 출발지의 중심에 가장 가까워요` : `중심에서 약 ${hub.distance.toFixed(1)}km 떨어진 대안이에요`,
+  }));
+
+  return { candidates, resolvedCount: locations.length, unresolvedCount: cleanRegions.length - locations.length };
+}
+
+module.exports = { HUBS, geocodeLocation, knownLocation, nearestHub, nearestHubs, midpointCandidates };

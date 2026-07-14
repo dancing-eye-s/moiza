@@ -345,6 +345,7 @@ async function joinEvent(eventId, { name, password, address, preferredArea }) {
   };
 
   if (existing) {
+    if (!existing.passwordHash) return { error: "EXISTING_PARTICIPANT_LOCKED" };
     if (existing.passwordHash && existing.passwordHash !== passwordHash && existing.passwordHash !== hashLegacyPassword(password)) {
       return { error: "PASSWORD_MISMATCH" };
     }
